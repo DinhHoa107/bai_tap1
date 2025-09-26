@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mã hoá cổ điển — Caesar, Affine, Hoán vị, Vigenère, Playfair</title>
+  <style>
+    :root{font-family:Inter,system-ui,Segoe UI,Helvetica,Arial;}
+    body{margin:0;padding:24px;background:#f6f8fb;color:#111}
+    h1{font-size:20px;margin:0 0 12px}
+    .container{max-width:980px;margin:0 auto;background:#fff;border-radius:10px;padding:18px;box-shadow:0 6px 24px rgba(20,30,60,.08)}
+    .row{display:grid;grid-template-columns:1fr 340px;gap:18px}
+    .panel{padding:12px;border-radius:8px;background:#fbfdff;border:1px solid #eef3fb}
+    label{display:block;font-size:13px;margin:8px 0 4px}
+    textarea,input{width:100%;box-sizing:border-box;padding:10px;border-radius:6px;border:1px solid #dfe8f3;font-size:14px}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    button{padding:8px 12px;border-radius:8px;border:0;background:#2563eb;color:white;cursor:pointer}
+    select{padding:8px;border-radius:8px}
+    .small{font-size:13px;color:#475569}
+    .matrix{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px}
+    .cell{background:#fff;padding:10px;border-radius:6px;border:1px solid #e6eef9;text-align:center;font-weight:600}
+    pre{white-space:pre-wrap;background:transparent;padding:0;margin:6px 0}
+    .footer{margin-top:12px;font-size:13px;color:#556}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Mã hoá cổ điển — Caesar, Affine, Hoán vị, Vigenère, Playfair</h1>
+    <div class="row">
+      <div>
+        <div class="panel">
+          <label for="cipher">Chọn phương pháp</label>
+          <select id="cipher">
+            <option value="caesar">Caesar</option>
+            <option value="affine">Affine</option>
+            <option value="perm">Hoán vị (Substitution)</option>
+            <option value="vigenere">Vigenère</option>
+            <option value="playfair">Playfair</option>
+          </select>
+
+          <label for="input">Văn bản (A–Z, không dấu). Có hỗ trợ chữ thường và khoảng trắng)</label>
+          <textarea id="input" rows="6">HELLO WORLD</textarea>
+
+          <div id="params"></div>
+
+          <div class="controls">
+            <button id="btnEncrypt">Mã hoá</button>
+            <button id="btnDecrypt">Giải mã</button>
+            <button id="btnClear">Xoá</button>
+          </div>
+
+          <label for="output">Kết quả</label>
+          <textarea id="output" rows="6" readonly></textarea>
+        </div>
+
+        <div class="panel footer small">
+          <strong>Ghi chú:</strong>
+          <ul>
+            <li>Input sẽ tự chuyển thành chữ hoa, loại bỏ ký tự không phải chữ A–Z (trừ Playfair giữ khoảng trống để ghép cặp).</li>
+            <li>Affine yêu cầu hệ số a và 26 nguyên tố cùng nhau (gcd(a,26)=1). Nếu không đúng, sẽ báo lỗi.</li>
+            <li>Hoán vị yêu cầu một khoá là hoán vị 26 chữ cái (ví dụ: QWERTY...).</li>
+          </ul>
+        </div>
+      </div>
+
+      <aside>
+        <div class="panel">
+          <h3>Ma trận Playfair</h3>
+          <div id="playfairGrid" class="matrix"></div>
+          <label class="small">Giải thích ngắn:</label>
+          <pre class="small">Playfair: ghép đôi ký tự, thay I/J cùng ô, thêm chữ X nếu cần.
+Vigenère: khoá lặp lại, cộng modulo 26.
+Affine: E(x)=(a*x+b) mod26, D(y)=a^{-1}(y-b) mod26.</pre>
+        </div>
+
+        <div class="panel" style="margin-top:12px">
+          <h3>Kết quả test nhanh</h3>
+          <div id="testResults" class="small"></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+<script>
+// ---------- Utility ----------
+const A_CODE = 'A'.charCodeAt(0);
+function cleanText(t){ return t.toUpperCase().replace(/[^A-Z]/g,''); }
+function mod(n,m){ return ((n % m) + m) % m; }
+function egcd(a,b){ return b===0? {g:a,x:1,y:0}: (()=>{const r=egcd(b,a%b);return {g:r.g,x:r.y,y:r.x-Math.floor(a/b)*r.y}})(); }
+
+// ---------- Ciphers ----------
+// Caesar
+function caesarEncrypt(pt, k){ pt = cleanText(pt); return [...pt].map(ch=>String.fromCharCode(A_CODE + mod(ch.charCodeAt(0)-A_CODE + Number(k),26))).join(''); }
+function caesarDecrypt(ct,k){ return caesarEncrypt(ct,26-Number(k)); }
+
+// Affine: E(x) = (a*x + b) mod26
+function affineEncrypt(pt,a,b){ pt = cleanText(pt); if(egcd(a,26).g !== 1) throw 'a must be coprime with 26'; return [...pt].map(ch=>String.fromCharCode(A_CODE + mod(a*(ch.charCodeAt(0)-A_CODE)+Number(b),26))).join(''); }
+function affineDecrypt(ct,a,b){ if(egcd(a,26).g !== 1) throw 'a must be coprime with 26'; const inv = mod(egcd(a,26).x,26); return [...cleanText(ct)].map(ch=>String.fromCharCode(A_CODE + mod(inv*(ch.charCodeAt(0)-A_CODE-Number(b)),26))).join(''); }
+
+// Substitution (Hoán vị) - key: 26-char mapping for A..Z
+function buildSubMap(key){ const k = key.toUpperCase().replace(/[^A-Z]/g,''); if(k.length!==26) throw 'Khóa hoán vị phải đúng 26 chữ cái.'; const mapE = {}; const mapD = {}; for(let i=0;i<26;i++){ mapE[String.fromCharCode(A_CODE+i)] = k[i]; mapD[k[i]] = String.fromCharCode(A_CODE+i); } return {mapE,mapD}; }
+function subEncrypt(pt,key){ const {mapE} = buildSubMap(key); return cleanText(pt).split('').map(ch=>mapE[ch]).join(''); }
+function subDecrypt(ct,key){ const {mapD} = buildSubMap(key); return cleanText(ct).split('').map(ch=>mapD[ch]).join(''); }
+
+// Vigenere
+function vigenereEncrypt(pt,key){ const p = cleanText(pt); const k = cleanText(key); if(k.length===0) throw 'Khóa rỗng'; let res=''; for(let i=0;i<p.length;i++){ const ki = k[i % k.length].charCodeAt(0)-A_CODE; res += String.fromCharCode(A_CODE + mod(p.charCodeAt(i)-A_CODE + ki,26)); } return res; }
+function vigenereDecrypt(ct,key){ const c = cleanText(ct); const k = cleanText(key); if(k.length===0) throw 'Khóa rỗng'; let res=''; for(let i=0;i<c.length;i++){ const ki = k[i % k.length].charCodeAt(0)-A_CODE; res += String.fromCharCode(A_CODE + mod(c.charCodeAt(i)-A_CODE - ki,26)); } return res; }
+
+// Playfair
+function preparePlayfairKey(key){ let s = key.toUpperCase().replace(/[^A-Z]/g,''); s = s.replace(/J/g,'I'); let used = new Set(); let arr = [];
+  for(const ch of s){ if(!used.has(ch)){ used.add(ch); arr.push(ch); } }
+  for(let i=0;i<26;i++){ const ch = String.fromCharCode(A_CODE+i); if(ch==='J') continue; if(!used.has(ch)){ used.add(ch); arr.push(ch); } }
+  // 5x5 matrix
+  const mat = []; for(let r=0;r<5;r++) mat.push(arr.slice(r*5, r*5+5));
+  const pos = {}; for(let r=0;r<5;r++) for(let c=0;c<5;c++) pos[mat[r][c]] = [r,c];
+  return {mat,pos}; }
+
+function playfairPrepareText(pt){ // keep spaces removed, but we need digraphs; convert J->I
+  let s = pt.toUpperCase().replace(/[^A-Z]/g,'').replace(/J/g,'I'); let out='';
+  for(let i=0;i<s.length;i++){ let a=s[i]; let b=s[i+1]; if(!b){ out += a + 'X'; } else if(a===b){ out += a + 'X'; } else { out += a + b; i++; } }
+  return out.match(/.{1,2}/g) || [];
+}
+function playfairEncrypt(pt,key){ const {mat,pos} = preparePlayfairKey(key); const pairs = playfairPrepareText(pt); let res=''; for(const pair of pairs){ const a = pair[0], b=pair[1]; const [ra,ca]=pos[a], [rb,cb]=pos[b]; if(ra===rb){ res += mat[ra][(ca+1)%5] + mat[rb][(cb+1)%5]; } else if(ca===cb){ res += mat[(ra+1)%5][ca] + mat[(rb+1)%5][cb]; } else { res += mat[ra][cb] + mat[rb][ca]; } }
+  return res; }
+function playfairDecrypt(ct,key){ const {mat,pos} = preparePlayfairKey(key); const s = ct.toUpperCase().replace(/[^A-Z]/g,''); const pairs = s.match(/.{1,2}/g)||[]; let res=''; for(const pair of pairs){ const a = pair[0], b=pair[1]; const [ra,ca]=pos[a], [rb,cb]=pos[b]; if(ra===rb){ res += mat[ra][mod(ca-1,5)] + mat[rb][mod(cb-1,5)]; } else if(ca===cb){ res += mat[mod(ra-1,5)][ca] + mat[mod(rb-1,5)][cb]; } else { res += mat[ra][cb] + mat[rb][ca]; } }
+  return res; }
+
+// ---------- UI wiring ----------
+const cipherSel = document.getElementById('cipher');
+const paramsDiv = document.getElementById('params');
+const inputEl = document.getElementById('input');
+const outputEl = document.getElementById('output');
+const pfGrid = document.getElementById('playfairGrid');
+const testResults = document.getElementById('testResults');
+
+function renderParams(){ const c = cipherSel.value; let html='';
+  if(c==='caesar') html = `
+    <label>Khóa (shift k, 0-25)</label>
+    <input id="key_caesar" value="3" />
+  `;
+  else if(c==='affine') html = `
+    <label>Khóa a (cộng) và b (dịch). Lưu ý gcd(a,26)=1</label>
+    <input id="key_aff_a" value="5" style="width:48%;display:inline-block;margin-right:4%" />
+    <input id="key_aff_b" value="8" style="width:48%;display:inline-block" />
+  `;
+  else if(c==='perm') html = `
+    <label>Khóa hoán vị — 26 chữ cái (ví dụ: QWERTYUIOPASDFGHJKLZXCVBNM)</label>
+    <input id="key_perm" value="QWERTYUIOPASDFGHJKLZXCVBNM" />
+  `;
+  else if(c==='vigenere') html = `
+    <label>Khóa (chuỗi chữ)</label>
+    <input id="key_vig" value="KEY" />
+  `;
+  else if(c==='playfair') html = `
+    <label>Khóa Playfair (chuỗi chữ, J sẽ được thay bằng I)</label>
+    <input id="key_playfair" value="MONARCHY" />
+  `;
+  paramsDiv.innerHTML = html; updatePlayfairGrid(); }
+
+function updatePlayfairGrid(){ const key = document.getElementById('key_playfair') ? document.getElementById('key_playfair').value : ''; try{ const {mat} = preparePlayfairKey(key||'KEY'); pfGrid.innerHTML = mat.flat().map(ch=>`<div class="cell">${ch}</div>`).join(''); }catch(e){ pfGrid.innerHTML = ''; } }
+
+cipherSel.addEventListener('change', renderParams);
+paramsDiv.addEventListener('input', updatePlayfairGrid);
+
+document.getElementById('btnEncrypt').addEventListener('click', ()=>{
+  try{
+    const c = cipherSel.value; let res='';
+    if(c==='caesar'){ const k=document.getElementById('key_caesar').value; res = caesarEncrypt(inputEl.value,k); }
+    else if(c==='affine'){ const a=Number(document.getElementById('key_aff_a').value), b=Number(document.getElementById('key_aff_b').value); res = affineEncrypt(inputEl.value,a,b); }
+    else if(c==='perm'){ const key=document.getElementById('key_perm').value; res = subEncrypt(inputEl.value,key); }
+    else if(c==='vigenere'){ const key=document.getElementById('key_vig').value; res = vigenereEncrypt(inputEl.value,key); }
+    else if(c==='playfair'){ const key=document.getElementById('key_playfair').value; res = playfairEncrypt(inputEl.value,key); }
+    outputEl.value = res; testResults.innerText = 'Đã mã hoá.';
+  }catch(e){ alert('Lỗi: '+e); }
+});
+
+document.getElementById('btnDecrypt').addEventListener('click', ()=>{
+  try{
+    const c = cipherSel.value; let res='';
+    if(c==='caesar'){ const k=document.getElementById('key_caesar').value; res = caesarDecrypt(inputEl.value,k); }
+    else if(c==='affine'){ const a=Number(document.getElementById('key_aff_a').value), b=Number(document.getElementById('key_aff_b').value); res = affineDecrypt(inputEl.value,a,b); }
+    else if(c==='perm'){ const key=document.getElementById('key_perm').value; res = subDecrypt(inputEl.value,key); }
+    else if(c==='vigenere'){ const key=document.getElementById('key_vig').value; res = vigenereDecrypt(inputEl.value,key); }
+    else if(c==='playfair'){ const key=document.getElementById('key_playfair').value; res = playfairDecrypt(inputEl.value,key); }
+    outputEl.value = res; testResults.innerText = 'Đã giải mã.';
+  }catch(e){ alert('Lỗi: '+e); }
+});
+
+document.getElementById('btnClear').addEventListener('click', ()=>{ inputEl.value=''; outputEl.value=''; testResults.innerText=''; });
+
+renderParams();
+</script>
+</body>
+</html>
